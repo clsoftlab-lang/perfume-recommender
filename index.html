@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright 2026 CLSOFTLAB (씨엘소프트랩), Dr. Lee Il-guk (이일국)
+-->
+<html lang="ko" data-theme="">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>향수 추천 · Perfume Recommender</title>
+  <meta name="description" content="노트·계절·상황·예산으로 향수를 탐색하고, 설문 매칭 점수로 맞춤 추천을 받는 데모 웹앱." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8C%B8%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#/">🌸 향수 추천</a>
+    <nav class="site-nav" aria-label="주 메뉴">
+      <a href="#/" data-route>탐색</a>
+      <a href="#/survey" data-route>추천 설문</a>
+      <a href="#/notes" data-route>노트로 찾기</a>
+      <a href="#/wishlist" data-route>찜 <span class="nav-count" id="nav-wish-count">0</span></a>
+      <a href="#/compare" data-route>비교 <span class="nav-count" id="nav-cmp-count">0</span></a>
+    </nav>
+    <div class="header-tools">
+      <button id="theme-toggle" class="icon-btn" title="라이트/다크 전환" aria-label="테마 전환">◐</button>
+      <button id="reset-all" class="icon-btn" title="저장 데이터 초기화" aria-label="초기화">⟲</button>
+    </div>
+  </header>
+
+  <main id="app" aria-live="polite"><!-- 뷰가 이 컨테이너에 렌더링됨 --></main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <footer class="site-footer">
+    <p><strong>데모 모드:</strong> 모든 향수·브랜드·가격은 가상의 예시이며, 추천은 규칙 기반 매칭입니다. 저장은 브라우저 localStorage만 사용합니다(실 DB·계정·PII 없음).</p>
+    <p>© 2026 CLSOFTLAB (씨엘소프트랩), Dr. Lee Il-guk (이일국) · Apache-2.0 · Not an official Anthropic product.</p>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
