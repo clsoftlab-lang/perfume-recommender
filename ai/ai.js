@@ -39,9 +39,15 @@ const TASK_SET = new Set(Object.values(TASKS));
 export async function askAI(task, payload = {}, { onToken } = {}) {
   if (!TASK_SET.has(task)) throw new Error(`알 수 없는 AI 태스크: ${task}`);
   const endpoint = String(AI_ENDPOINT || '').trim();
-  return endpoint
-    ? runRemote(endpoint, task, payload, onToken)
-    : runMock(task, payload, onToken);
+  if (!endpoint) return runMock(task, payload, onToken);
+
+  // 무인(never-breaks) 원칙: 원격 프록시가 실패/429{fallback:true}/네트워크 오류면
+  // 내장 mock 으로 자동 폴백한다. 앱은 어떤 경우에도 멈추지 않는다.
+  try {
+    return await runRemote(endpoint, task, payload, onToken);
+  } catch (_err) {
+    return runMock(task, payload, onToken);
+  }
 }
 
 // ---------- 원격(실 LLM) : 백엔드 프록시 스트리밍 ----------
@@ -51,6 +57,9 @@ async function runRemote(endpoint, task, payload, onToken) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ task, payload }),
   });
+  // 429 는 서버 가드레일(레이트/월 예산)의 폴백 신호({fallback:true}). 토큰을 흘리기 전에
+  // 던져서 askAI 가 mock 으로 폴백하도록 한다(부분 스트림 중복 방지).
+  if (res.status === 429) throw new Error('AI_FALLBACK_429');
   if (!res.ok) throw new Error(`AI 서버 오류: HTTP ${res.status}`);
 
   // 스트리밍 본문이 없으면 전체 텍스트로 폴백

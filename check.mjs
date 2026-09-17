@@ -146,11 +146,12 @@ for (const dir of ['ai', 'server']) {
 // 5b) 데모 기본값: AI_ENDPOINT 는 비어 있어야 한다(내장 mock 사용 → 서버·키 불필요)
 eq(AI_ENDPOINT, '', 'AI_ENDPOINT 기본값 빈 문자열(mock 모드)');
 
-// 5c) 저장소 어디에도 실 API 키 / 하드코딩 키가 없어야 한다
+// 5c) 저장소 어디에도 "실제" API 키가 없어야 한다.
+//     정규식으로 완전한 키 형태(sk-ant-… 20자 이상)만 잡아, README 의 `sk-ant…` 언급은 오탐하지 않는다.
 {
   const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cache']);
-  const TEXT_EXT = /\.(js|mjs|cjs|json|md|html|css|txt|yml|yaml|example|env)$/i;
-  const NEEDLE = 'sk-' + 'ant'; // 검사기 자신이 오탐되지 않도록 리터럴을 분리 표기
+  const TEXT_EXT = /\.(js|mjs|cjs|json|md|html|css|txt|yml|yaml|toml|example|env)$/i;
+  const KEY_RE = new RegExp('sk-' + 'ant-[A-Za-z0-9_-]{20,}'); // 리터럴 분리로 검사기 자기 오탐 방지
   const offenders = [];
   const walk = (d) => {
     for (const ent of readdirSync(d, { withFileTypes: true })) {
@@ -160,11 +161,11 @@ eq(AI_ENDPOINT, '', 'AI_ENDPOINT 기본값 빈 문자열(mock 모드)');
       if (!TEXT_EXT.test(ent.name)) continue;
       let txt = '';
       try { txt = readFileSync(full, 'utf8'); } catch { continue; }
-      if (txt.includes(NEEDLE)) offenders.push(full.replace(ROOT, '.'));
+      if (KEY_RE.test(txt)) offenders.push(full.replace(ROOT, '.'));
     }
   };
   walk(ROOT);
-  assert(offenders.length === 0, `하드코딩 API 키(${NEEDLE}) 없음`, offenders.join(', '));
+  assert(offenders.length === 0, '실제 API 키(sk-ant-…) 없음', offenders.join(', '));
 }
 
 // 5d) MockProvider 결정론 스모크 테스트 (추천 엔진 재사용)

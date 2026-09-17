@@ -44,6 +44,56 @@ async function streamAI(el, task, payload, trigger) {
   }
 }
 
+// ---------- 오늘의 추천 향 (autonomous, on-load) ----------
+// 홈 진입 시 현재 계절·시간대를 읽어 매칭 엔진(recommend)으로 후보를 뽑고,
+// askAI(consult)로 한 줄 다이제스트를 생성한다. mock 모드에서 서버·키 없이 그대로 동작한다.
+// 세션당 1회만 생성해 캐시(재렌더/필터 클릭마다 재호출 방지).
+const dailyPick = { text: '', done: false, running: false };
+
+function seasonByMonth(m) {
+  if (m === 11 || m <= 1) return 'winter';
+  if (m <= 4) return 'spring';
+  if (m <= 7) return 'summer';
+  return 'autumn';
+}
+function dayPart(h) {
+  if (h < 11) return { situation: 'office', ko: '아침' };
+  if (h < 17) return { situation: 'daily', ko: '낮' };
+  if (h < 21) return { situation: 'date', ko: '저녁' };
+  return { situation: 'party', ko: '밤' };
+}
+function dailyContext() {
+  const now = new Date();
+  const season = seasonByMonth(now.getMonth());
+  const part = dayPart(now.getHours());
+  // 한국어 라벨로 질의를 만들어 parseTasteQuery(내부)가 계절·상황을 정확히 인식하게 한다.
+  const query = `${SEASON_LABELS[season]} ${part.ko} ${SITUATION_LABELS[part.situation]}에 어울리는 향`;
+  return { season, part, query };
+}
+
+async function renderDailyPick() {
+  const out = document.getElementById('daily-pick-out');
+  if (!out) return;
+  if (dailyPick.done) { out.textContent = dailyPick.text; return; } // 캐시 재사용
+  if (dailyPick.running) return;
+  dailyPick.running = true;
+  out.classList.add('ai-streaming');
+  try {
+    const { query } = dailyContext();
+    dailyPick.text = await askAI(TASKS.CONSULT, { query, perfumes: PERFUMES, limit: 3 }, {
+      onToken: (t) => { const el = document.getElementById('daily-pick-out'); if (el) el.textContent += t; },
+    });
+    dailyPick.done = true;
+  } catch (_e) {
+    // 무인 원칙: 실패해도 홈은 정상. 조용히 섹션을 비운다.
+    dailyPick.text = '';
+  } finally {
+    dailyPick.running = false;
+    const el = document.getElementById('daily-pick-out');
+    if (el) { el.classList.remove('ai-streaming'); if (dailyPick.done) el.textContent = dailyPick.text; }
+  }
+}
+
 function updateBadges() {
   const w = document.getElementById('nav-wish-count');
   const c = document.getElementById('nav-cmp-count');
@@ -82,10 +132,15 @@ const browseState = { q: '', family: '', season: '', situation: '', gender: '', 
 function browseView() {
   const families = Object.entries(FAMILY_LABELS);
   const opt = (v, label, cur) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${esc(label)}</option>`;
+  const dc = dailyContext();
   app.innerHTML = `
   <section class="hero">
     <h1>당신의 향을 찾아보세요</h1>
     <p>계열·계절·상황으로 탐색하거나, <a href="#/survey">향 추천 설문</a>으로 맞춤 추천을 받아보세요.</p>
+  </section>
+  <section class="daily-pick" id="daily-pick" aria-label="오늘의 추천 향">
+    <h2>🗓️ 오늘의 추천 향 <small>${esc(SEASON_LABELS[dc.season])} · ${esc(dc.part.ko)}</small></h2>
+    <p class="ai-output daily-pick-out" id="daily-pick-out" aria-live="polite"></p>
   </section>
   <section class="filters" aria-label="필터">
     <input id="f-q" class="f-search" type="search" placeholder="향수·브랜드·노트 검색" value="${esc(browseState.q)}" />
@@ -117,6 +172,7 @@ function browseView() {
     document.getElementById('f-' + k).addEventListener('change', (e) => { browseState[k] = e.target.value; renderBrowseGrid(); });
   });
   renderBrowseGrid();
+  renderDailyPick(); // 무인 다이제스트(세션 캐시)
 }
 
 function applyBrowse() {

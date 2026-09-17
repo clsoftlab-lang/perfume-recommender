@@ -30,8 +30,22 @@ cd server
 npm install                       # installs @anthropic-ai/sdk
 cp .env.example .env              # then edit .env and put your real key in it
 ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY node index.mjs
-# → AI proxy listening on http://localhost:8787  (POST /api/ai, model=claude-opus-5)
+# → AI proxy listening on http://localhost:8787  (POST /api/ai, model=claude-haiku-4-5)
 ```
+
+### Cost / model env vars
+
+| Var | Default | Meaning |
+|-----|---------|---------|
+| `AI_MODEL` | `claude-haiku-4-5` | Cost-first default. Raise to `claude-sonnet-5` / `claude-opus-5` for higher quality. |
+| `AI_EFFORT` | `low` | Effort for Sonnet/Opus only (Haiku ignores thinking/effort). |
+| `AI_RATE_PER_MIN` | `20` | Per-IP requests per minute; over → `429 {fallback:true}`. |
+| `AI_MONTHLY_TOKEN_CAP` | `2000000` | Monthly token budget; over → `429 {fallback:true}`. |
+
+**Cost-efficiency built in:** default **Haiku 4.5** (~$1/$5 per MTok), **prompt caching** on the per-task
+system block, modest per-task `max_tokens` (~700), adaptive thinking/effort only on Sonnet/Opus (Haiku
+rejects them → no 400s), and the rate-limit + token-budget guardrails above. On `429 {fallback:true}` the
+frontend auto-falls back to the built-in mock, so the app never breaks (무인).
 
 (Any process manager / `--env-file=.env` on Node 20+ / container secret works too — just make
 sure the key arrives as an environment variable and never as source.)
@@ -50,16 +64,35 @@ The frontend posts `{ task, payload }` and streams the plain-text response. Task
 ## What it does
 
 - `POST /api/ai` with `{ "task": "...", "payload": {...} }`
-- Builds a Korean system prompt per task and calls
-  `client.messages.stream({ model: "claude-opus-5", max_tokens: 2048, thinking: { type: "adaptive" }, system, messages })`
+- Builds a Korean system prompt per task (sent as a cached `system` block) and calls
+  `client.messages.stream({ model: AI_MODEL || "claude-haiku-4-5", max_tokens: ~700, system:[{…cache_control}], messages })`
+  (adds `thinking`/`output_config.effort` only for non-Haiku models)
 - Streams Claude's text deltas straight back to the browser (`text/plain; charset=utf-8`)
 - CORS enabled (`ALLOW_ORIGIN`, default `*`; narrow it to your domain in production)
 
+## Free unmanned deploy — Cloudflare Workers (무인)
+
+For a **free, no-server-to-babysit** deploy, use the Worker variant [`worker.js`](./worker.js) +
+[`wrangler.toml`](./wrangler.toml). It calls the Anthropic REST API
+(`POST https://api.anthropic.com/v1/messages`) with the **same task routing, model, and prompt-caching
+rules** as `index.mjs`, and returns the assistant text.
+
+```bash
+cd server
+wrangler secret put ANTHROPIC_API_KEY   # key lives ONLY as a Worker secret — never in the repo
+wrangler deploy                         # → https://perfume-recommender-ai.<you>.workers.dev
+```
+
+Then point the frontend at `https://…workers.dev/api/ai` in [`../ai/config.js`](../ai/config.js).
+`AI_MODEL` / `AI_EFFORT` / `ALLOW_ORIGIN` can be set as `[vars]` in `wrangler.toml`; on any upstream
+failure the Worker returns `429 {fallback:true}` so the frontend auto-falls back to the mock.
+
 ## Model
 
-`claude-opus-5` with adaptive thinking (`thinking: { type: "adaptive" }`) and streaming — the
-current defaults for the Anthropic SDK. Change the `MODEL` constant in `index.mjs` if you need a
-different tier.
+`claude-haiku-4-5` by default (cost-first). Streaming is used for the Node proxy; adaptive thinking
+(`thinking: { type: "adaptive" }`) and `output_config.effort` are applied only for Sonnet/Opus, because
+Haiku 4.5 rejects them (would 400). Set `AI_MODEL` (env / `wrangler.toml` var) to change tier — no code
+edit needed.
 
 ## Security checklist
 

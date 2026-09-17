@@ -76,7 +76,7 @@ Real LLM responses plug in via a **backend proxy** — the browser never sees a 
    cd server && npm install
    ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY node index.mjs
    ```
-   It calls `client.messages.stream({ model: "claude-opus-5", max_tokens: 2048, thinking: { type: "adaptive" }, ... })` and streams the result back.
+   It calls `client.messages.stream({ model: "claude-haiku-4-5" (configurable via AI_MODEL), max_tokens: ~700, ... })` and streams the result back.
 2. Point the frontend at it in [`ai/config.js`](./ai/config.js):
    ```js
    export const AI_ENDPOINT = "https://your-proxy/api/ai"; // empty ⇒ built-in mock
@@ -85,6 +85,28 @@ Real LLM responses plug in via a **backend proxy** — the browser never sees a 
 The frontend flips from mock to real automatically — same UI, same task ids (`ai/ai.js` → `TASKS`).
 
 > **🔒 API keys live server-side only.** Never put an `ANTHROPIC_API_KEY` in the browser, in `ai/config.js`, or anywhere in the repo. The SPA calls the proxy; the proxy holds the key in its environment and is the only thing that talks to Claude. `check.mjs` asserts no key string exists anywhere in the tree.
+
+## ⚙️ 고도화 — 무인·저비용 실 AI 연동
+
+The AI layer is tuned for **cost-efficiency, real Claude, and unmanned (무인) operation.**
+
+**Cost model.** The proxy defaults to a **cost-first model, `claude-haiku-4-5`** (~**$1 / MTok input, $5 / MTok output**), and can be raised to `claude-sonnet-5` or `claude-opus-5` via `AI_MODEL`. Three levers keep spend low:
+
+- **Prompt caching** — each task's stable system prompt is sent as a `cache_control: { type: "ephemeral" }` block, so repeated calls read the cache instead of re-billing the prompt.
+- **Output caps** — modest per-task `max_tokens` (~700; 400 for short "moment" blurbs).
+- **Adaptive thinking / effort** are enabled only for Sonnet/Opus; Haiku 4.5 (which rejects them) is sent neither, avoiding 400 errors.
+
+**Rough estimate.** At ~700 output + ~1.5k cached-input tokens per request, **1,000 requests on Haiku ≈ a few US cents to well under $1** — and a built-in **monthly token budget** (`AI_MONTHLY_TOKEN_CAP`, default 2,000,000) plus a **per-IP rate limit** (20/min) cap the worst case; on exceed the proxy returns `429 {fallback:true}`.
+
+**Free one-deploy (Cloudflare Workers, 무인).** [`server/worker.js`](./server/worker.js) + [`server/wrangler.toml`](./server/wrangler.toml) call the Anthropic REST API with the same task routing / model / caching rules — no server to babysit:
+
+```bash
+cd server
+wrangler secret put ANTHROPIC_API_KEY   # key lives only as a Worker secret
+wrangler deploy
+```
+
+**Never breaks (autonomous mock-fallback).** If the endpoint fails, returns `429 {fallback:true}`, or the network is down, `ai/ai.js` **automatically falls back to the built-in mock** — the app keeps working unmanned. The home page also shows an on-load **"오늘의 추천 향 (계절/시간 기반)"** digest, built from the matching engine via `askAI`, so it works offline via the mock too.
 
 ## Run locally
 

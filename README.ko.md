@@ -72,7 +72,7 @@ Copyright 2026 CLSOFTLAB (씨엘소프트랩), Dr. Lee Il-guk (이일국)
    cd server && npm install
    ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY node index.mjs
    ```
-   내부적으로 `client.messages.stream({ model: "claude-opus-5", max_tokens: 2048, thinking: { type: "adaptive" }, ... })` 로 호출하고 결과를 스트리밍합니다.
+   내부적으로 `client.messages.stream({ model: "claude-haiku-4-5" (AI_MODEL 로 변경 가능), max_tokens: ~700, ... })` 로 호출하고 결과를 스트리밍합니다.
 2. [`ai/config.js`](./ai/config.js) 에서 프런트를 프록시로 연결합니다:
    ```js
    export const AI_ENDPOINT = "https://your-proxy/api/ai"; // 비어 있으면 내장 mock
@@ -81,6 +81,28 @@ Copyright 2026 CLSOFTLAB (씨엘소프트랩), Dr. Lee Il-guk (이일국)
 이 값만 채우면 UI 변경 없이 mock ↔ 실서버가 자동 전환됩니다(태스크 id는 `ai/ai.js` → `TASKS`).
 
 > **🔒 API 키는 서버 측에서만.** `ANTHROPIC_API_KEY` 를 브라우저·`ai/config.js`·저장소 어디에도 두지 마세요. SPA는 프록시를 호출하고, 프록시만 서버 환경변수로 키를 쥐고 Claude와 통신합니다. `check.mjs` 가 저장소 전체에 키 문자열이 없는지 검사합니다.
+
+## ⚙️ 고도화 — 무인·저비용 실 AI 연동
+
+AI 레이어는 **저비용·실 Claude·무인(unmanned) 운영**에 맞춰 조정돼 있습니다.
+
+**비용 모델.** 프록시는 **비용 우선 기본 모델 `claude-haiku-4-5`**(약 **입력 $1 / 출력 $5 per MTok**)를 쓰며, `AI_MODEL` 로 `claude-sonnet-5`·`claude-opus-5` 로 상향할 수 있습니다. 비용을 낮추는 3가지 장치:
+
+- **프롬프트 캐싱** — 태스크별 안정적인 시스템 프롬프트를 `cache_control: { type: "ephemeral" }` 블록으로 보내, 반복 호출 시 캐시를 읽어 프롬프트 비용을 재청구하지 않습니다.
+- **출력 상한** — 태스크별 modest `max_tokens`(~700, 짧은 "순간" 문구는 400).
+- **adaptive thinking / effort** 는 Sonnet·Opus 에서만 켜고, 이를 받지 않는 Haiku 4.5 에는 보내지 않아 400 오류를 피합니다.
+
+**대략 비용.** 요청당 출력 ~700 + 캐시 입력 ~1.5k 토큰 기준, **Haiku 로 1,000요청 ≈ 몇 센트~$1 미만**입니다. 여기에 **월 토큰 예산**(`AI_MONTHLY_TOKEN_CAP`, 기본 2,000,000)과 **IP당 레이트 리밋**(20/분)이 최악의 경우를 막고, 초과 시 프록시는 `429 {fallback:true}` 를 돌려줍니다.
+
+**무료 원클릭 배포 (Cloudflare Workers, 무인).** [`server/worker.js`](./server/worker.js) + [`server/wrangler.toml`](./server/wrangler.toml) 이 동일한 태스크 라우팅·모델·캐싱 규칙으로 Anthropic REST API 를 호출합니다. 돌볼 서버가 없습니다:
+
+```bash
+cd server
+wrangler secret put ANTHROPIC_API_KEY   # 키는 Worker 시크릿으로만 존재
+wrangler deploy
+```
+
+**절대 멈추지 않음 (무인 mock 폴백).** 엔드포인트 실패·`429 {fallback:true}`·네트워크 장애 시 `ai/ai.js` 가 **자동으로 내장 mock 으로 폴백**해 앱이 무인으로 계속 동작합니다. 홈 화면에는 매칭 엔진을 `askAI` 로 호출해 만든 온로드 **"오늘의 추천 향 (계절/시간 기반)"** 다이제스트가 표시되며, mock 으로 오프라인에서도 동작합니다.
 
 ## 로컬 실행
 

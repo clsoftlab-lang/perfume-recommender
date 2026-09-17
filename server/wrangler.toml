@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 CLSOFTLAB (씨엘소프트랩), Dr. Lee Il-guk (이일국)
+#
+# server/wrangler.toml — Cloudflare Workers 배포 설정 (무료 티어, 무인).
+#
+# 키는 반드시 시크릿으로만 주입한다(파일/저장소 어디에도 두지 않는다):
+#   wrangler secret put ANTHROPIC_API_KEY
+# 배포:
+#   cd server && wrangler deploy
+
+name = "perfume-recommender-ai"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# 선택: 비용 우선 기본 모델을 상향하려면 값을 바꾼다(claude-sonnet-5 / claude-opus-5).
+# ALLOW_ORIGIN 은 운영 시 배포 도메인으로 좁힌다.
+[vars]
+AI_MODEL = "claude-haiku-4-5"
+AI_EFFORT = "low"
+ALLOW_ORIGIN = "*"
+
+# ANTHROPIC_API_KEY 는 [vars] 에 절대 넣지 않는다 — 반드시 `wrangler secret put` 로만.
