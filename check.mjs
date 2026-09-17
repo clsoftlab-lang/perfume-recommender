@@ -16,6 +16,8 @@ import { dirname, join } from 'node:path';
 import {
   scorePerfume, recommend, similarity, similarTo, findByNote, WEIGHTS,
 } from './recommender.js';
+import { AI_ENDPOINT } from './ai/config.js';
+import { askAI, parseTasteQuery, TASKS } from './ai/ai.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 let passed = 0, failed = 0;
@@ -125,6 +127,70 @@ if (perfumes.length) {
   eq(real.length, 12, '실데이터: limit 12 적용');
   assert(real.every((p, i) => i === 0 || real[i - 1].score >= p.score), '실데이터: 점수 내림차순');
   assert(real[0].reasons.length > 0, '실데이터: 1위에 추천 이유 존재');
+}
+
+// ---------- 5) AI 레이어 ----------
+console.log('\n[5] AI 레이어 (ai/ + server/)');
+
+// 5a) ai/ + server/ 하위 JS 구문 검사
+for (const dir of ['ai', 'server']) {
+  let files = [];
+  try { files = readdirSync(join(ROOT, dir)).filter((f) => f.endsWith('.js') || f.endsWith('.mjs')); }
+  catch (e) { bad(`${dir}/ 디렉터리`, e.message); }
+  for (const f of files) {
+    try { execFileSync(process.execPath, ['--check', join(ROOT, dir, f)], { stdio: 'pipe' }); ok(`${dir}/${f}`); }
+    catch (e) { bad(`${dir}/${f}`, String(e.stderr || e.message).split('\n')[0]); }
+  }
+}
+
+// 5b) 데모 기본값: AI_ENDPOINT 는 비어 있어야 한다(내장 mock 사용 → 서버·키 불필요)
+eq(AI_ENDPOINT, '', 'AI_ENDPOINT 기본값 빈 문자열(mock 모드)');
+
+// 5c) 저장소 어디에도 실 API 키 / 하드코딩 키가 없어야 한다
+{
+  const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cache']);
+  const TEXT_EXT = /\.(js|mjs|cjs|json|md|html|css|txt|yml|yaml|example|env)$/i;
+  const NEEDLE = 'sk-' + 'ant'; // 검사기 자신이 오탐되지 않도록 리터럴을 분리 표기
+  const offenders = [];
+  const walk = (d) => {
+    for (const ent of readdirSync(d, { withFileTypes: true })) {
+      if (ent.name.startsWith('.env') && ent.name !== '.env.example') continue; // 실제 .env 는 무시(git 제외 대상)
+      const full = join(d, ent.name);
+      if (ent.isDirectory()) { if (!SKIP_DIRS.has(ent.name)) walk(full); continue; }
+      if (!TEXT_EXT.test(ent.name)) continue;
+      let txt = '';
+      try { txt = readFileSync(full, 'utf8'); } catch { continue; }
+      if (txt.includes(NEEDLE)) offenders.push(full.replace(ROOT, '.'));
+    }
+  };
+  walk(ROOT);
+  assert(offenders.length === 0, `하드코딩 API 키(${NEEDLE}) 없음`, offenders.join(', '));
+}
+
+// 5d) MockProvider 결정론 스모크 테스트 (추천 엔진 재사용)
+{
+  const answers = parseTasteQuery('여름 데이트에 어울리는 시트러스, 15만원 이하');
+  assert(answers.families.includes('citrus'), 'parseTasteQuery: 시트러스 인식');
+  eq(answers.season, 'summer', 'parseTasteQuery: 여름 인식');
+  eq(answers.situation, 'date', 'parseTasteQuery: 데이트 인식');
+  eq(answers.budget, 150000, 'parseTasteQuery: 15만 → 150000');
+
+  const consult = await askAI(TASKS.CONSULT, { query: '겨울 오피스 우디', perfumes, limit: 3 });
+  assert(typeof consult === 'string' && consult.length > 20, 'consult: 한국어 텍스트 생성');
+  const consult2 = await askAI(TASKS.CONSULT, { query: '겨울 오피스 우디', perfumes, limit: 3 });
+  eq(consult, consult2, 'consult: 동일 입력 → 결정론적 동일 출력');
+
+  if (perfumes.length) {
+    const moment = await askAI(TASKS.MOMENT, { perfume: perfumes[0] });
+    assert(moment.includes(perfumes[0].name), 'moment: 향수 이름 포함');
+    const ranked = recommend(perfumes, { families: ['woody'] }, { limit: 3 });
+    const rationale = await askAI(TASKS.RATIONALE, { answers: { families: ['woody'] }, results: ranked });
+    assert(rationale.includes(ranked[0].name), 'rationale: 1순위 향수 언급');
+  }
+
+  let threw = false;
+  try { await askAI('bogus-task', {}); } catch { threw = true; }
+  assert(threw, 'askAI: 알 수 없는 태스크 거부');
 }
 
 // ---------- 결과 ----------

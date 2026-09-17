@@ -1,0 +1,18 @@
+{
+  "name": "perfume-recommender-ai-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "REFERENCE backend proxy for the Perfume Recommender AI layer. Deploy with your own ANTHROPIC_API_KEY; never commit a key.",
+  "license": "Apache-2.0",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0"
+  }
+}

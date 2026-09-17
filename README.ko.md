@@ -53,6 +53,35 @@ Copyright 2026 CLSOFTLAB (씨엘소프트랩), Dr. Lee Il-guk (이일국)
 - **찜·비교** — 위시리스트, 최대 4개 비교표(행별 최적값 강조)
 - **부가 기능** — 계절/상황 태그, 입문/시그니처/가성비 배지, 가성비 점수, 라이트/다크 테마, 원클릭 초기화
 
+## 🤖 AI 기능 (API 연동)
+
+**플러그블 AI 레이어**(`ai/`)로 세 가지 AI 기능이 내장돼 있습니다.
+
+1. **AI 향 컨설턴트 챗봇** (`#/ai`) — "여름 데이트에 어울리는 상큼한 시트러스, 15만원 이하" 처럼 자연어로 취향·상황을 말하면, 카탈로그에서 골라 이유와 함께 추천합니다.
+2. **취향 설문 → 추천 이유 서술** (설문 결과 화면) — 매칭 엔진의 점수를 우아한 자연어 설명으로 풀어줍니다.
+3. **상황별 향 추천 문구** (향수 상세 화면) — 향수마다 "이 향이 어울리는 순간"을 짧게 생성합니다.
+
+**데모는 내장 `MockProvider`로 그대로 동작합니다** — `recommender.js` 엔진과 카탈로그를 재사용하는 결정론적 한국어 생성이라, 서버·네트워크·API 키 없이 GitHub Pages 정적 배포에서 바로 실행됩니다.
+
+### 실제 AI(Claude) 연동
+
+실 LLM 응답은 **백엔드 프록시**를 통해 붙습니다. 브라우저는 키를 절대 보지 못합니다.
+
+1. [`server/`](./server/)의 레퍼런스 프록시를 운영자 자신의 키로 배포합니다(`server/README.md`):
+   ```bash
+   cd server && npm install
+   ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY node index.mjs
+   ```
+   내부적으로 `client.messages.stream({ model: "claude-opus-5", max_tokens: 2048, thinking: { type: "adaptive" }, ... })` 로 호출하고 결과를 스트리밍합니다.
+2. [`ai/config.js`](./ai/config.js) 에서 프런트를 프록시로 연결합니다:
+   ```js
+   export const AI_ENDPOINT = "https://your-proxy/api/ai"; // 비어 있으면 내장 mock
+   ```
+
+이 값만 채우면 UI 변경 없이 mock ↔ 실서버가 자동 전환됩니다(태스크 id는 `ai/ai.js` → `TASKS`).
+
+> **🔒 API 키는 서버 측에서만.** `ANTHROPIC_API_KEY` 를 브라우저·`ai/config.js`·저장소 어디에도 두지 마세요. SPA는 프록시를 호출하고, 프록시만 서버 환경변수로 키를 쥐고 Claude와 통신합니다. `check.mjs` 가 저장소 전체에 키 문자열이 없는지 검사합니다.
+
 ## 로컬 실행
 
 빌드·의존성 없음. ES 모듈과 `fetch` 때문에 HTTP로 서빙해야 합니다:

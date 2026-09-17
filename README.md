@@ -57,6 +57,35 @@ earned its points (e.g. "선호 계열 우디 일치", "예산 이내"). See
 - 찜 & 비교 — wishlist and a compare table for up to 4 (best-in-row highlighting)
 - Extras: 계절/상황 태그, 입문/시그니처/가성비 badges, value scoring, light/dark theme, one-click reset
 
+## 🤖 AI 기능 (API 연동)
+
+Three AI features are built in, powered by a **pluggable AI layer** (`ai/`):
+
+1. **AI 향 컨설턴트 챗봇** (`#/ai`) — describe your taste/occasion in natural language ("여름 데이트에 어울리는 상큼한 시트러스, 15만원 이하") and get curated perfume suggestions with reasons.
+2. **취향 설문 → 추천 이유 서술** (survey results) — turns the matching engine's scores into an elegant natural-language rationale.
+3. **상황별 향 추천 문구** (perfume detail) — generates a short "이 향이 어울리는 순간" description per perfume.
+
+**The demo works out of the box with a built-in `MockProvider`** — deterministic Korean text that reuses the same `recommender.js` engine and catalog. No server, no network, no API key: it runs on GitHub Pages as-is.
+
+### Enable real AI (Claude)
+
+Real LLM responses plug in via a **backend proxy** — the browser never sees a key.
+
+1. Deploy the reference proxy in [`server/`](./server/) (`server/README.md`) with your own key:
+   ```bash
+   cd server && npm install
+   ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY node index.mjs
+   ```
+   It calls `client.messages.stream({ model: "claude-opus-5", max_tokens: 2048, thinking: { type: "adaptive" }, ... })` and streams the result back.
+2. Point the frontend at it in [`ai/config.js`](./ai/config.js):
+   ```js
+   export const AI_ENDPOINT = "https://your-proxy/api/ai"; // empty ⇒ built-in mock
+   ```
+
+The frontend flips from mock to real automatically — same UI, same task ids (`ai/ai.js` → `TASKS`).
+
+> **🔒 API keys live server-side only.** Never put an `ANTHROPIC_API_KEY` in the browser, in `ai/config.js`, or anywhere in the repo. The SPA calls the proxy; the proxy holds the key in its environment and is the only thing that talks to Claude. `check.mjs` asserts no key string exists anywhere in the tree.
+
 ## Run locally
 
 No build step, no dependencies. Serve the folder over HTTP (ES modules + `fetch` need a server):
@@ -92,6 +121,8 @@ deployable straight to GitHub Pages. Inline SVG for all visuals. CI runs `node c
 index.html          app.js            recommender.js   (matching math)
 styles.css          storage.js        svg.js           (inline-SVG rendering)
 data/perfumes.json  check.mjs         .github/workflows/ci.yml
+ai/config.js        ai/ai.js          (pluggable AI layer: mock ⇄ real proxy)
+server/index.mjs    server/README.md  (REFERENCE Claude proxy — deploy with your key)
 ```
 
 ## Deploy (GitHub Pages)

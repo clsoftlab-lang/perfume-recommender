@@ -9,6 +9,7 @@ import {
 } from './recommender.js';
 import { wishlist, compare, survey, resetAll } from './storage.js';
 import { notePyramid, levelBar, scoreRing } from './svg.js';
+import { askAI, parseTasteQuery, TASKS } from './ai/ai.js';
 
 const app = document.getElementById('app');
 const toastEl = document.getElementById('toast');
@@ -25,6 +26,22 @@ function toast(msg) {
   toastEl.classList.add('show');
   clearTimeout(toast._t);
   toast._t = setTimeout(() => toastEl.classList.remove('show'), 1900);
+}
+
+// AI 텍스트를 요소에 스트리밍으로 채운다(mock/실서버 공통). 버튼은 진행 중 비활성화.
+async function streamAI(el, task, payload, trigger) {
+  if (!el) return;
+  el.textContent = '';
+  el.classList.add('ai-streaming');
+  if (trigger) { trigger.disabled = true; trigger.dataset.loading = '1'; }
+  try {
+    await askAI(task, payload, { onToken: (t) => { el.textContent += t; } });
+  } catch (err) {
+    el.textContent = `AI 호출에 실패했어요: ${err && err.message ? err.message : err}`;
+  } finally {
+    el.classList.remove('ai-streaming');
+    if (trigger) { trigger.disabled = false; delete trigger.dataset.loading; }
+  }
 }
 
 function updateBadges() {
@@ -156,6 +173,10 @@ function detailView(id) {
           <button class="btn ${inCmp ? 'on' : ''}" data-act="cmp" data-id="${p.id}">${inCmp ? '비교중' : '＋ 비교담기'}</button>
         </div>
         <p class="desc">${esc(p.description)}</p>
+        <div class="ai-moment">
+          <button class="btn" id="ai-moment-btn">🤖 이 향이 어울리는 순간</button>
+          <p class="ai-output ai-moment-out" id="ai-moment-out" aria-live="polite"></p>
+        </div>
         <div class="tags">
           ${p.seasons.map((s) => `<span class="tag">${esc(SEASON_LABELS[s])}</span>`).join('')}
           ${p.situations.map((s) => `<span class="tag">${esc(SITUATION_LABELS[s])}</span>`).join('')}
@@ -183,6 +204,11 @@ function detailView(id) {
     <h2>비슷한 향수</h2>
     <div class="grid grid-sim">${sims.map((s) => perfumeCard(s, `<span class="sim-tag">유사도 ${(s.sim * 100).toFixed(0)}%</span>`)).join('')}</div>
   </section>`;
+
+  const momentBtn = document.getElementById('ai-moment-btn');
+  if (momentBtn) momentBtn.addEventListener('click', () => {
+    streamAI(document.getElementById('ai-moment-out'), TASKS.MOMENT, { perfume: p }, momentBtn);
+  });
 }
 
 // ---------- 설문 ----------
@@ -244,11 +270,68 @@ function resultsView() {
     <a class="back" href="#/survey">← 설문 수정</a>
     <h1>맞춤 추천</h1>
     <p class="sub">선호: ${esc(chosen)} · ${esc(SITUATION_LABELS[answers.situation] || '상황 무관')} · ${esc(SEASON_LABELS[answers.season] || '계절 무관')} · 예산 ${won(answers.budget)}</p>
+    <div class="ai-rationale">
+      <button class="btn" id="ai-why">🤖 AI로 추천 이유 서술받기</button>
+      <div class="ai-output" id="ai-why-out" aria-live="polite"></div>
+    </div>
     <div class="grid">
       ${ranked.map((p) => perfumeCard(p, `
         <div class="match">${scoreRing(p.score)}<ul class="reasons">${(p.reasons.length ? p.reasons : ['기본 매칭']).map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>`)).join('')}
     </div>
   </section>`;
+
+  const whyBtn = document.getElementById('ai-why');
+  if (whyBtn) whyBtn.addEventListener('click', () => {
+    const results = ranked.slice(0, 3).map((p) => ({
+      name: p.name, brand: p.brand, families: p.families,
+      score: p.score, reasons: p.reasons, breakdown: p.breakdown,
+    }));
+    streamAI(document.getElementById('ai-why-out'), TASKS.RATIONALE, { answers, results }, whyBtn);
+  });
+}
+
+// ---------- AI 향 컨설턴트 챗봇 ----------
+const AI_EXAMPLES = [
+  '여름 데이트에 어울리는 상큼한 시트러스, 15만원 이하',
+  '겨울 오피스에서 은은한 우디 머스크',
+  '봄 데일리로 가벼운 플로럴, 남성용',
+];
+
+function aiConsultView() {
+  app.innerHTML = `
+  <section class="ai-consult">
+    <h1>AI 향 컨설턴트 🤖</h1>
+    <p class="sub">원하는 향·계절·상황·예산을 자연어로 들려주세요. AI가 카탈로그에서 골라 이유와 함께 추천해드려요.</p>
+    <div class="ai-note">데모는 내장 <strong>Mock AI</strong>로 동작합니다(서버·API 키 불필요). 실제 Claude 연동은 <code>ai/config.js</code> + <code>server/</code> 참고.</div>
+    <form id="ai-form" class="ai-form">
+      <textarea id="ai-query" rows="3" placeholder="예: ${esc(AI_EXAMPLES[0])}"></textarea>
+      <div class="ai-examples">${AI_EXAMPLES.map((e) => `<button type="button" class="ex-chip" data-ex="${esc(e)}">${esc(e)}</button>`).join('')}</div>
+      <button type="submit" class="btn primary" id="ai-go">추천 받기</button>
+    </form>
+    <div class="ai-out-wrap" id="ai-out-wrap" hidden>
+      <h2>컨설턴트의 제안</h2>
+      <div class="ai-output" id="ai-output" aria-live="polite"></div>
+      <div class="grid" id="ai-picks"></div>
+    </div>
+  </section>`;
+
+  const form = document.getElementById('ai-form');
+  const ta = document.getElementById('ai-query');
+  document.querySelectorAll('#ai-form .ex-chip').forEach((c) => c.addEventListener('click', () => {
+    ta.value = c.dataset.ex; ta.focus();
+  }));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const query = ta.value.trim();
+    if (!query) { toast('원하는 향을 한 줄로 적어주세요.'); return; }
+    document.getElementById('ai-out-wrap').hidden = false;
+    // 추천 카드: mock/실서버와 동일한 파서로 뽑아 화면에 함께 보여준다(단일 진실원천).
+    const picks = recommend(PERFUMES, parseTasteQuery(query), { limit: 3 });
+    document.getElementById('ai-picks').innerHTML = picks.map((p) => perfumeCard(p, `
+      <div class="match">${scoreRing(p.score)}<ul class="reasons">${(p.reasons.length ? p.reasons : ['기본 매칭']).map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>`)).join('');
+    await streamAI(document.getElementById('ai-output'), TASKS.CONSULT,
+      { query, perfumes: PERFUMES, limit: 3 }, document.getElementById('ai-go'));
+  });
 }
 
 // ---------- 노트로 찾기 ----------
@@ -351,6 +434,7 @@ function route() {
   window.scrollTo(0, 0);
   document.querySelectorAll('nav a[data-route]').forEach((a) => a.classList.toggle('active', h.startsWith(a.getAttribute('href'))));
   if (h.startsWith('#/detail/')) return detailView(h.split('/')[2]);
+  if (h.startsWith('#/ai')) return aiConsultView();
   if (h.startsWith('#/survey')) return surveyView();
   if (h.startsWith('#/results')) return resultsView();
   if (h.startsWith('#/notes')) return notesView();

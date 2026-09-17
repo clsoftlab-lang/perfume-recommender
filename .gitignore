@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
 
+# Secrets — API keys live server-side only, never in the repo
+.env
+.env.*
+!.env.example
+
 # Logs
 *.log
 npm-debug.log*
